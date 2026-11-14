@@ -79,6 +79,16 @@ dialog::backdrop{background:rgb(0 0 0 / .4)}
     </div>
     <div class="grid" id="backendFields" style="margin-top:10px"></div>
     <p class="muted" id="backendHint"></p>
+    <fieldset id="autoDrive" style="border:1px solid var(--line);border-radius:6px;margin:12px 0 0;padding:8px 12px">
+      <legend class="muted" style="font-size:12px;padding:0 4px">Add as a drive for</legend>
+      <div class="row" id="autoDriveUsers"></div>
+      <div class="row" style="margin-top:6px">
+        <label class="row" style="color:inherit"><input type="checkbox" name="ad.read" checked> Read</label>
+        <label class="row" style="color:inherit"><input type="checkbox" name="ad.write" checked> Write</label>
+        <label class="row" style="color:inherit"><input type="checkbox" name="ad.delete" checked> Delete</label>
+        <label class="row" style="color:inherit"><input type="checkbox" name="ad.perUserFolder"> Separate folder per user</label>
+      </div>
+    </fieldset>
     <div class="row" style="justify-content:flex-end;margin-top:16px">
       <span id="testResult" style="margin-right:auto"></span>
       <button type="button" value="cancel" onclick="this.closest('dialog').close()">Cancel</button>
@@ -194,6 +204,10 @@ function openBackend(b) {
   f.type.value = b?.type || 'r2-binding';
   backendFields(f.type.value, b?.config || {}, !!b);
   f.type.onchange = () => backendFields(f.type.value, {}, false);
+  // New backends become drives for the checked users (everyone by default).
+  $('#autoDrive').hidden = !!b || !S.users.length;
+  $('#autoDriveUsers').innerHTML = S.users.map((u) =>
+    `<label class="row" style="color:inherit"><input type="checkbox" name="ad.user" value="${esc(u.username)}" checked> ${esc(u.username)}</label>`).join('');
   $('#backendDlg').showModal();
 }
 
@@ -202,8 +216,15 @@ $('#backendForm').addEventListener('submit', async (e) => {
   const f = e.target, config = {};
   for (const el of f.querySelectorAll('[name^="cfg."]')) config[el.name.slice(4)] = el.value;
   try {
-    render(await call('PUT', 'backends/' + encodeURIComponent(f.id.value), { type: f.type.value, config }));
-    $('#backendDlg').close(); toast('Backend saved');
+    const isNew = !f.id.readOnly;
+    const drive = {
+      users: [...f.querySelectorAll('[name="ad.user"]:checked')].map((el) => el.value),
+      read: f['ad.read'].checked, write: f['ad.write'].checked, delete: f['ad.delete'].checked,
+      perUserFolder: f['ad.perUserFolder'].checked,
+    };
+    render(await call('PUT', 'backends/' + encodeURIComponent(f.id.value), { type: f.type.value, config, ...(isNew ? { drive } : {}) }));
+    $('#backendDlg').close();
+    toast(isNew && drive.users.length ? 'Backend saved and added as a drive for ' + drive.users.join(', ') : 'Backend saved');
   } catch (err) { toast(err.message, true); }
 });
 
@@ -230,7 +251,13 @@ function openUser(u) {
   f.enabled.checked = u ? u.enabled : true;
   $('#mountRows').innerHTML = '';
   if (!S.backends.length) toast('Add a storage backend first', true);
-  (u?.mounts || (S.backends[0] ? [{ name: 'drive', backend: S.backends[0].id, prefix: f.username.value, read: true, write: true, delete: true }] : [])).forEach(mountRow);
+  (u?.mounts || (S.backends[0] ? [{ name: 'drive', backend: S.backends[0].id, prefix: '', read: true, write: true, delete: true }] : [])).forEach(mountRow);
+  // For a new user, prefixes still equal to the username follow it as it's typed.
+  let typed = '';
+  f.username.oninput = u ? null : () => {
+    for (const el of $('#mountRows').querySelectorAll('[name="m.prefix"]')) if (el.value === typed) el.value = f.username.value;
+    typed = f.username.value;
+  };
   $('#keys').innerHTML = u ? `<div class="muted">S3 credentials</div>
     <div>Access key ID: <code>${esc(u.accessKeyId)}</code></div>
     <div>Secret access key: <code>${esc(u.secretAccessKey)}</code></div>

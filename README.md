@@ -6,14 +6,27 @@ users reach them over **WebDAV** and an **S3-compatible API**. A minimal admin
 panel at `/admin` manages backends, users, passwords, limits and permissions.
 
 ```
- WebDAV clients ──┐                         ┌── R2 (Worker binding, native)
- (Finder, rclone, │   ┌─────────────────┐   ├── R2 / S3 / MinIO / B2 / Wasabi / Spaces
-  Cyberduck, …)   ├──▶│ Cloudflare      │──▶├── WebDAV server
- S3 clients ──────┤   │ Worker          │   └── Vercel Blob
- (aws, rclone, …) │   │  /dav  /  /admin│        (via @storagesdk adapters)
- Browser ─────────┘   └──────┬──────────┘
-                             └── KV: settings, users, usage
+ WebDAV clients ──┐                          ┌── R2 (Worker binding, native)
+ (Finder, rclone, │   ┌──────────────────┐   ├── S3-style: R2, S3, Tigris, MinIO, B2, Neon, …
+  Cyberduck, …)   ├──▶│ Cloudflare Worker│──▶├── Azure Blob, Google Cloud Storage
+ S3 clients ──────┤   │ /dav   /   /admin│   ├── Git-backed: GitHub, Code Storage, Mesa
+ (aws, rclone, …) │   └────────┬─────────┘   └── WebDAV server, Vercel Blob
+ Browser ─────────┘            │                  (via @storagesdk adapters)
+                               └── KV: settings, users, usage
 ```
+
+## How it fits together
+
+- A **backend** is a place files are stored: a bucket, a container, a repo.
+- A **drive** gives one user access to a backend, optionally limited to a
+  folder (the *prefix*), with its own read / write / delete permissions.
+  Each drive is a top-level folder in WebDAV and a bucket in S3.
+- A **user** signs in with a password (WebDAV) or access keys (S3) and sees
+  only their drives.
+
+A backend no user has a drive for is not reachable at all. That's why, when
+you create a backend, the admin panel adds it as a drive for your users right
+away (see below).
 
 ## Deploy
 
@@ -31,8 +44,10 @@ npx wrangler deploy
 
 `wrangler deploy` creates the `CONFIG` KV namespace and the `BUCKET` R2 bucket
 for you (the bindings in `wrangler.toml` have no IDs on purpose). Open
-`https://<your-worker>/admin`, sign in with the admin password, and you'll see
-an `r2` backend already pointing at the bound bucket. Add a user and you're done.
+`https://<your-worker>/admin` and sign in with the admin password. An `r2`
+backend pointing at the bound bucket is already there. Click *Add user*; the
+form starts with a `drive` on that backend in a folder named after the user.
+Save, and connect a client (see [Connecting](#connecting)).
 
 Local development: `cp .dev.vars.example .dev.vars`, then `npm run dev`
 (the local admin password is `admin`).
@@ -40,8 +55,22 @@ Local development: `cp .dev.vars.example .dev.vars`, then `npm run dev`
 ## Admin panel
 
 - **Storage backends** — pick a type, fill in its fields, and use *Test* to
-  check the connection. Secret fields are never sent back to the browser;
-  leave them empty when editing to keep the stored value.
+  check the connection (it reports the backend's own error and gives up after
+  20 seconds). Secret fields are never sent back to the browser; leave them
+  empty when editing to keep the stored value.
+
+  **New backends become drives automatically.** The *Add backend* form has an
+  *Add as a drive for* section: every existing user is checked, with read,
+  write and delete allowed. On save, each checked user gets a drive named
+  after the backend ID (lowercased, `_` turned into `-`, and `-2`, `-3`, … added
+  if the user already has a drive with that name). Untick users or
+  permissions to narrow it, or tick *Separate folder per user* so each user
+  gets their own folder (named after them) instead of the backend's root.
+  Editing an existing backend never adds drives.
+
+  The *Used by* column lists the drives on each backend. A backend with no
+  drives is marked **no user**, with an *Add as drive…* link that opens a
+  user's form with the drive filled in.
 
   | Type | Notes |
   | --- | --- |
@@ -62,11 +91,11 @@ Local development: `cp .dev.vars.example .dev.vars`, then `npm run dev`
   and two limits:
   - *Quota*: total bytes the user may store (0 = unlimited).
   - *Max file size*: largest single file (0 = unlimited).
-- **Drives** — each user gets one or more drives. A drive is a backend plus a
-  path prefix, with its own **read / write / delete** permissions. It shows up
-  as a top-level folder in WebDAV and as a bucket in S3. Two users can share a
-  drive by pointing at the same backend and prefix (e.g. a read-only `public`
-  drive).
+- **Drives** — edit them per user under *Users → Edit → Drives*: name,
+  backend, prefix, and read / write / delete. Two users can share files by
+  pointing drives at the same backend and prefix (e.g. a read-only `public`
+  drive). Drive names use lowercase letters, digits, `.` and `-`, since they
+  double as S3 bucket names.
 - **S3 credentials** are generated per user and can be rotated.
 - **Recount** recomputes a user's usage from what's actually stored.
 
@@ -97,6 +126,23 @@ ListObjects (v1/v2, delimiter, pagination, `encoding-type=url`), Get/Head
 (ranges, conditional headers, `response-*` overrides), PutObject (signed,
 unsigned and `aws-chunked` bodies, with chunk signatures verified),
 CopyObject, DeleteObject(s), multipart upload, and presigned URLs.
+
+## Admin API
+
+The panel is a thin page over a JSON API under `/admin/api/`, authenticated by
+the session cookie from `POST /admin/api/login` (`{"password": "..."}`).
+Writes need `content-type: application/json`.
+
+| Method and path | What it does |
+| --- | --- |
+| `GET state` | Backend types, backends (secrets blanked), users with usage. |
+| `PUT backends/<id>` | Create or update: `{type, config, drive?}`. On create, `drive` controls the automatic drives: `{users?, read?, write?, delete?, perUserFolder?}` (default: all users, full access, backend root), or `false` to skip. |
+| `POST backends/<id>/test` | Try listing the backend. |
+| `DELETE backends/<id>` | Refused while any drive uses it. |
+| `PUT users/<name>` | Create or update: `{password?, enabled, quotaBytes, maxFileBytes, mounts}`. |
+| `POST users/<name>/keys` | Issue new S3 keys. |
+| `POST users/<name>/recount` | Recompute usage. |
+| `DELETE users/<name>` | Remove the user; their files stay in storage. |
 
 ## Tests
 

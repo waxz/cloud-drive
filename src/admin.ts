@@ -96,6 +96,39 @@ const num = (v: unknown) => {
   return n;
 };
 
+/**
+ * Adds a new backend as a drive for users, so it shows up in WebDAV and S3
+ * right away. `opts` comes from the request: `false` skips it; otherwise
+ * `users` (default: everyone), `read`/`write`/`delete` (default: true) and
+ * `perUserFolder` (each user gets a folder named after them instead of the
+ * backend root).
+ */
+function addDrives(users: User[], backendId: string, opts: unknown): void {
+  if (opts === false) return;
+  const o = (opts ?? {}) as {
+    users?: unknown;
+    read?: unknown;
+    write?: unknown;
+    delete?: unknown;
+    perUserFolder?: unknown;
+  };
+  const pickUsers = Array.isArray(o.users) ? new Set(o.users.map(String)) : undefined;
+  const base = backendId.toLowerCase().replace(/[^a-z0-9.-]/g, '-').replace(/^[^a-z0-9]+/, '') || 'drive';
+  for (const u of users) {
+    if (pickUsers && !pickUsers.has(u.username)) continue;
+    let name = base.slice(0, 63);
+    for (let n = 2; u.mounts.some((m) => m.name === name); n++) name = `${base.slice(0, 60)}-${n}`;
+    u.mounts.push({
+      name,
+      backend: backendId,
+      prefix: o.perUserFolder === true ? u.username : '',
+      read: o.read !== false,
+      write: o.write !== false,
+      delete: o.delete !== false,
+    });
+  }
+}
+
 /** Error message plus its causes, so a generic "Provider" error shows what the backend said. */
 function describe(err: unknown): string {
   const parts: string[] = [];
@@ -187,7 +220,10 @@ async function api(req: Request, env: Env, path: string): Promise<Response> {
       }
       const next = { id, type, config };
       if (prev) settings.backends[idx] = next;
-      else settings.backends.push(next);
+      else {
+        settings.backends.push(next);
+        addDrives(settings.users, id, body.drive);
+      }
       await saveSettings(env, settings);
       return json(await state(env));
     }
