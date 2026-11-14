@@ -158,6 +158,22 @@ CFD_KEY=... CFD_SECRET=... CFD_BUCKET=home node test/smoke-s3.mjs
 
 ## Limits worth knowing
 
+- Uploads stream through the Worker, whether or not the client sends a
+  `Content-Length`. Uploads without one (`Transfer-Encoding: chunked`, e.g.
+  macOS Finder) are cut into 8 MB R2 multipart parts, or handed to
+  storagesdk's multipart upload, as the bytes arrive. The max file size and
+  quota are checked against the bytes received so far; going over aborts the
+  upload with 413 / 507 and leaves nothing behind.
+
+  Whether the whole file ever sits in memory depends on the backend's
+  storagesdk adapter:
+
+  | Backends | Upload memory |
+  | --- | --- |
+  | `r2-binding` | One 8 MB part at most. |
+  | `s3`, `r2`, `minio`, `backblaze`, `wasabi`, `spaces`, `linode`, `supabase`, `neon`, `mosaic`, `archil` | One multipart part (5 MB by default). |
+  | `tigris`, `fly`, `railway` | Up to the Tigris SDK; not measured. |
+  | `azure`, `gcs`, `webdav`, `vercel`, `github`, `code-storage`, `mesa` | The whole file: their adapters read the body into memory before sending it. Keep files on these well under the Worker's 128 MB memory limit. |
 - Cloudflare caps request bodies at 100 MB (more on Enterprise). Big files
   should go through S3 multipart (aws cli and rclone do this automatically).
   A single WebDAV PUT above the cap is rejected by Cloudflare.

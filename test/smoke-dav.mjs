@@ -20,6 +20,19 @@ const part = await dav('GET', `${p}/a file.txt`, { headers: { range: 'bytes=6-' 
 assert.equal(part.status, 206);
 assert.equal(await part.text(), 'again');
 
+// Chunked upload (no Content-Length), as macOS Finder sends: 20 MB in 1 MB pieces.
+const big = new Uint8Array(20 * 1024 * 1024).map((_, i) => (i * 7) % 256);
+const chunked = new ReadableStream({
+  start(c) {
+    for (let i = 0; i < big.length; i += 1024 * 1024) c.enqueue(big.slice(i, i + 1024 * 1024));
+    c.close();
+  },
+});
+assert.equal((await dav('PUT', `${p}/chunked.bin`, { body: chunked, duplex: 'half' })).status, 201);
+const back = new Uint8Array(await (await dav('GET', `${p}/chunked.bin`)).arrayBuffer());
+assert.equal(back.length, big.length);
+assert.ok(back.every((b, i) => b === big[i]), 'chunked upload content matches');
+
 const listing = await hrefs(`${p}/`);
 assert.ok(listing.some((h) => h.endsWith('/empty/')), 'empty folder listed');
 assert.ok(listing.some((h) => h.endsWith('/a file.txt')), 'file listed');

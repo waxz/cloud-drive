@@ -85,6 +85,54 @@ export function guessType(path: string): string {
   return MIME[ext] ?? 'application/octet-stream';
 }
 
+/** R2 multipart part size for uploads of unknown length. R2 needs equal-sized parts (except the last). */
+const R2_PART = 8 * 1024 * 1024;
+
+/**
+ * Writes a stream of unknown length to R2 holding at most one part in memory.
+ * Small bodies (under one part) become a single PUT.
+ */
+async function r2PutStream(
+  bucket: R2Bucket,
+  key: string,
+  stream: ReadableStream<Uint8Array>,
+  opts: R2PutOptions & R2MultipartOptions
+): Promise<R2Object> {
+  const reader = stream.getReader();
+  let buf = new Uint8Array(R2_PART);
+  let fill = 0;
+  let mpu: R2MultipartUpload | undefined;
+  const parts: R2UploadedPart[] = [];
+  const flush = async (bytes: Uint8Array) => {
+    mpu ??= await bucket.createMultipartUpload(key, opts);
+    parts.push(await mpu.uploadPart(parts.length + 1, bytes));
+  };
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      for (let off = 0; off < value.byteLength; ) {
+        const take = Math.min(R2_PART - fill, value.byteLength - off);
+        buf.set(value.subarray(off, off + take), fill);
+        fill += take;
+        off += take;
+        if (fill === R2_PART) {
+          await flush(buf);
+          buf = new Uint8Array(R2_PART);
+          fill = 0;
+        }
+      }
+    }
+    if (!mpu) return (await bucket.put(key, buf.subarray(0, fill), opts))!;
+    if (fill > 0) await flush(buf.subarray(0, fill));
+    return await mpu.complete(parts);
+  } catch (err) {
+    await mpu?.abort().catch(() => {});
+    await reader.cancel().catch(() => {});
+    throw err;
+  }
+}
+
 export class Drive {
   constructor(
     readonly env: Env,
@@ -106,13 +154,19 @@ export class Drive {
 
   /** Throws when `size` more bytes (replacing `replacing` bytes) would break the user's limits. */
   checkLimits(size: number, replacing = 0, usage?: number): void {
+    const err = this.limitError(size, replacing, usage);
+    if (err) throw err;
+  }
+
+  limitError(size: number, replacing = 0, usage?: number): DriveError | undefined {
     const u = this.user;
     if (u.maxFileBytes > 0 && size > u.maxFileBytes) {
-      throw new DriveError(413, 'EntityTooLarge', `file exceeds the ${u.maxFileBytes} byte limit`);
+      return new DriveError(413, 'EntityTooLarge', `file exceeds the ${u.maxFileBytes} byte limit`);
     }
     if (u.quotaBytes > 0 && usage !== undefined && usage - replacing + size > u.quotaBytes) {
-      throw new DriveError(507, 'QuotaExceeded', 'storage quota exceeded');
+      return new DriveError(507, 'QuotaExceeded', 'storage quota exceeded');
     }
+    return undefined;
   }
 
   async usage(): Promise<number> {
@@ -314,19 +368,54 @@ export class MountHandle {
     const type = contentType || guessType(rel);
     const key = this.key(rel);
 
-    let data: ReadableStream<Uint8Array> | Uint8Array = body ?? new Uint8Array();
-    if (data instanceof ReadableStream && (size === undefined || size <= BUFFER_LIMIT)) {
-      data = new Uint8Array(await new Response(data).arrayBuffer());
-    }
-    if (size === undefined) {
-      size = (data as Uint8Array).byteLength;
-      drive.checkLimits(size, old?.size ?? 0, usage);
+    const httpMetadata = { contentType: type };
+    let meta: StorageItemMeta;
+
+    if (body instanceof ReadableStream && size === undefined) {
+      // Unknown length (chunked upload, e.g. macOS Finder): stream it in parts
+      // and enforce the limits on the bytes as they arrive.
+      let seen = 0;
+      let overflow: DriveError | undefined;
+      const counted = body.pipeThrough(
+        new TransformStream<Uint8Array, Uint8Array>({
+          transform(chunk, controller) {
+            seen += chunk.byteLength;
+            overflow = drive.limitError(seen, old?.size ?? 0, usage);
+            if (overflow) controller.error(overflow);
+            else controller.enqueue(chunk);
+          },
+        })
+      );
+      try {
+        if (this.r2) {
+          const o = await r2PutStream(this.r2, key, counted, {
+            httpMetadata,
+            ...(metadata ? { customMetadata: metadata } : {}),
+          });
+          meta = { path: key, size: o.size, contentType: type, etag: o.etag, lastModified: o.uploaded };
+        } else {
+          meta = await this.storage.upload(key, counted, {
+            contentType: type,
+            multipart: true,
+            ...(metadata ? { metadata } : {}),
+          });
+        }
+      } catch (err) {
+        throw overflow ?? err;
+      }
+      await drive.addUsage(meta.size - (old?.size ?? 0));
+      return meta;
     }
 
-    let meta: StorageItemMeta;
+    let data: ReadableStream<Uint8Array> | Uint8Array = body ?? new Uint8Array();
+    if (data instanceof ReadableStream && size !== undefined && size <= BUFFER_LIMIT) {
+      data = new Uint8Array(await new Response(data).arrayBuffer());
+    }
+    size ??= (data as Uint8Array).byteLength;
+
     if (this.r2 && data instanceof ReadableStream) {
       const o = await this.r2.put(key, data.pipeThrough(new FixedLengthStream(size)), {
-        httpMetadata: { contentType: type },
+        httpMetadata,
         ...(metadata ? { customMetadata: metadata } : {}),
       });
       meta = { path: key, size: o!.size, contentType: type, etag: o!.etag, lastModified: o!.uploaded };
