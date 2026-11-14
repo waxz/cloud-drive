@@ -57,7 +57,8 @@ dialog::backdrop{background:rgb(0 0 0 / .4)}
 
     <h2>Storage backends</h2>
     <section>
-      <table><thead><tr><th>ID</th><th>Type</th><th class="hide-sm">Target</th><th></th></tr></thead><tbody id="backends"></tbody></table>
+      <table><thead><tr><th>ID</th><th>Type</th><th class="hide-sm">Target</th><th>Used by</th><th></th></tr></thead><tbody id="backends"></tbody></table>
+      <p class="muted" style="margin:10px 0 0">A backend shows up in WebDAV and S3 only after you add it as a drive under a user.</p>
       <div class="row" style="margin-top:10px"><button id="addBackend">Add backend</button></div>
     </section>
 
@@ -153,9 +154,12 @@ function render(state) {
     const c = b.config;
     const target = b.type === 'r2-binding' ? 'binding ' + (c.binding || 'BUCKET')
       : c.owner ? c.owner + '/' + c.repo : c.bucket || c.repo || c.baseUrl || '';
-    return `<tr><td><b>${esc(b.id)}</b></td><td>${esc(S.types[b.type]?.label || b.type)}</td><td class="hide-sm muted">${esc(target)}</td>
+    const used = S.users.flatMap((u) => u.mounts.filter((m) => m.backend === b.id).map((m) => u.username + '/' + m.name));
+    const usedCell = used.length ? esc(used.join(', '))
+      : '<span class="bad">no user</span>' + (S.users.length ? ` · <button class="link" data-mount-backend="${esc(b.id)}">Add as drive…</button>` : '');
+    return `<tr><td><b>${esc(b.id)}</b></td><td>${esc(S.types[b.type]?.label || b.type)}</td><td class="hide-sm muted">${esc(target)}</td><td>${usedCell}</td>
       <td style="text-align:right;white-space:nowrap"><button class="link" data-test="${esc(b.id)}">Test</button> · <button class="link" data-edit-backend="${esc(b.id)}">Edit</button> · <button class="link danger" data-del-backend="${esc(b.id)}">Delete</button></td></tr>`;
-  }).join('') || '<tr><td colspan="4" class="muted">No backends yet.</td></tr>';
+  }).join('') || '<tr><td colspan="5" class="muted">No backends yet.</td></tr>';
 
   $('#users').innerHTML = S.users.map((u) => {
     const pct = u.quotaBytes ? Math.min(100, (u.usage / u.quotaBytes) * 100) : 0;
@@ -262,7 +266,15 @@ document.addEventListener('click', async (e) => {
   const d = e.target.dataset || {};
   try {
     if (d.editBackend) openBackend(S.backends.find((b) => b.id === d.editBackend));
-    else if (d.delBackend && confirm('Delete backend "' + d.delBackend + '"? Stored files are not touched.')) {
+    else if (d.mountBackend) {
+      const name = S.users.length === 1 ? S.users[0].username
+        : prompt('Add backend "' + d.mountBackend + '" as a drive for which user?\n' + S.users.map((u) => u.username).join(', '));
+      const u = S.users.find((x) => x.username === (name || '').trim());
+      if (!u) { if (name) toast('No user named "' + name + '"', true); return; }
+      openUser(u);
+      mountRow({ name: d.mountBackend.toLowerCase().replace(/[^a-z0-9.-]/g, '-'), backend: d.mountBackend, prefix: '', read: true, write: true, delete: true });
+      toast('Drive row added. Review and Save.');
+    } else if (d.delBackend && confirm('Delete backend "' + d.delBackend + '"? Stored files are not touched.')) {
       render(await call('DELETE', 'backends/' + encodeURIComponent(d.delBackend))); toast('Backend deleted');
     } else if (d.test) {
       e.target.textContent = 'Testing…';
