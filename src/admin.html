@@ -150,7 +150,9 @@ function render(state) {
   $('#s3Url').textContent = origin;
 
   $('#backends').innerHTML = S.backends.map((b) => {
-    const target = b.config.bucket || b.config.baseUrl || (b.type === 'r2-binding' ? 'binding ' + (b.config.binding || 'BUCKET') : '');
+    const c = b.config;
+    const target = b.type === 'r2-binding' ? 'binding ' + (c.binding || 'BUCKET')
+      : c.owner ? c.owner + '/' + c.repo : c.bucket || c.repo || c.baseUrl || '';
     return `<tr><td><b>${esc(b.id)}</b></td><td>${esc(S.types[b.type]?.label || b.type)}</td><td class="hide-sm muted">${esc(target)}</td>
       <td style="text-align:right;white-space:nowrap"><button class="link" data-test="${esc(b.id)}">Test</button> · <button class="link" data-edit-backend="${esc(b.id)}">Edit</button> · <button class="link danger" data-del-backend="${esc(b.id)}">Delete</button></td></tr>`;
   }).join('') || '<tr><td colspan="4" class="muted">No backends yet.</td></tr>';

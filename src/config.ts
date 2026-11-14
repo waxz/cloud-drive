@@ -14,85 +14,167 @@ export interface FieldSpec {
   placeholder?: string;
 }
 
-/** Backend types the admin panel can configure, and the fields each one takes. */
+const keys = (id = 'Access key ID', secret = 'Secret access key'): FieldSpec[] => [
+  { key: 'accessKeyId', label: id, required: true },
+  { key: 'secretAccessKey', label: secret, required: true, secret: true },
+];
+const bucket = (label = 'Bucket'): FieldSpec => ({ key: 'bucket', label, required: true });
+const opt = (key: string, label: string, placeholder?: string): FieldSpec => ({
+  key,
+  label,
+  ...(placeholder ? { placeholder } : {}),
+});
+const req = (key: string, label: string, placeholder?: string): FieldSpec => ({
+  ...opt(key, label, placeholder),
+  required: true,
+});
+const tigrisFields: FieldSpec[] = [
+  bucket(),
+  ...keys(),
+  opt('endpoint', 'Endpoint (optional)'),
+  opt('forcePathStyle', 'Path-style (true/false)', 'false'),
+];
+
+/**
+ * Backend types the admin panel can configure, and the fields each one takes.
+ * One entry per storagesdk adapter that runs on Workers, plus `r2-binding`.
+ */
 export const BACKEND_TYPES: Record<string, { label: string; fields: FieldSpec[] }> = {
   'r2-binding': {
     label: 'Cloudflare R2 (Worker binding)',
-    fields: [{ key: 'binding', label: 'Binding name', placeholder: 'BUCKET' }],
+    fields: [opt('binding', 'Binding name', 'BUCKET')],
   },
   r2: {
     label: 'Cloudflare R2 (API keys)',
-    fields: [
-      { key: 'bucket', label: 'Bucket', required: true },
-      { key: 'accountId', label: 'Account ID', required: true },
-      { key: 'accessKeyId', label: 'Access key ID', required: true },
-      { key: 'secretAccessKey', label: 'Secret access key', required: true, secret: true },
-      { key: 'endpoint', label: 'Endpoint (optional)' },
-    ],
+    fields: [bucket(), req('accountId', 'Account ID'), ...keys(), opt('endpoint', 'Endpoint (optional)')],
   },
   s3: {
     label: 'Amazon S3 / S3-compatible',
     fields: [
-      { key: 'bucket', label: 'Bucket', required: true },
-      { key: 'region', label: 'Region', placeholder: 'us-east-1' },
-      { key: 'endpoint', label: 'Endpoint (optional)' },
-      { key: 'accessKeyId', label: 'Access key ID', required: true },
-      { key: 'secretAccessKey', label: 'Secret access key', required: true, secret: true },
-      { key: 'forcePathStyle', label: 'Path-style (true/false)', placeholder: 'false' },
+      bucket(),
+      opt('region', 'Region', 'us-east-1'),
+      opt('endpoint', 'Endpoint (optional)'),
+      ...keys(),
+      opt('forcePathStyle', 'Path-style (true/false)', 'false'),
     ],
   },
+  tigris: { label: 'Tigris', fields: tigrisFields },
+  fly: { label: 'Fly.io (Tigris)', fields: tigrisFields },
+  railway: { label: 'Railway Buckets', fields: tigrisFields },
   minio: {
     label: 'MinIO',
-    fields: [
-      { key: 'bucket', label: 'Bucket', required: true },
-      { key: 'endpoint', label: 'Endpoint', required: true },
-      { key: 'accessKeyId', label: 'Access key ID', required: true },
-      { key: 'secretAccessKey', label: 'Secret access key', required: true, secret: true },
-    ],
+    fields: [bucket(), req('endpoint', 'Endpoint'), ...keys(), opt('region', 'Region (optional)')],
   },
   backblaze: {
     label: 'Backblaze B2',
-    fields: [
-      { key: 'bucket', label: 'Bucket', required: true },
-      { key: 'region', label: 'Region', required: true, placeholder: 'us-west-004' },
-      { key: 'accessKeyId', label: 'Key ID', required: true },
-      { key: 'secretAccessKey', label: 'Application key', required: true, secret: true },
-    ],
+    fields: [bucket(), req('region', 'Region', 'us-west-004'), ...keys('Key ID', 'Application key'), opt('endpoint', 'Endpoint (optional)')],
   },
   wasabi: {
     label: 'Wasabi',
-    fields: [
-      { key: 'bucket', label: 'Bucket', required: true },
-      { key: 'region', label: 'Region', required: true, placeholder: 'us-east-1' },
-      { key: 'accessKeyId', label: 'Access key ID', required: true },
-      { key: 'secretAccessKey', label: 'Secret access key', required: true, secret: true },
-    ],
+    fields: [bucket(), req('region', 'Region', 'us-east-1'), ...keys(), opt('endpoint', 'Endpoint (optional)')],
   },
   spaces: {
     label: 'DigitalOcean Spaces',
+    fields: [bucket('Space'), req('region', 'Region', 'nyc3'), ...keys('Access key ID', 'Secret key'), opt('endpoint', 'Endpoint (optional)')],
+  },
+  linode: {
+    label: 'Linode / Akamai Object Storage',
+    fields: [bucket(), req('region', 'Region', 'us-east-1'), ...keys(), opt('endpoint', 'Endpoint (optional)')],
+  },
+  supabase: {
+    label: 'Supabase Storage',
+    fields: [bucket(), req('projectRef', 'Project ref'), ...keys(), opt('region', 'Region (optional)'), opt('endpoint', 'Endpoint (optional)')],
+  },
+  neon: {
+    label: 'Neon Object Storage',
+    fields: [bucket(), req('endpoint', 'Endpoint'), ...keys(), opt('region', 'Region (optional)')],
+  },
+  mosaic: {
+    label: 'Mosaic Object Storage',
+    fields: [bucket(), ...keys(), opt('region', 'Region (optional)'), opt('endpoint', 'Endpoint (optional)')],
+  },
+  archil: {
+    label: 'Archil',
     fields: [
-      { key: 'bucket', label: 'Space', required: true },
-      { key: 'region', label: 'Region', required: true, placeholder: 'nyc3' },
-      { key: 'accessKeyId', label: 'Access key ID', required: true },
-      { key: 'secretAccessKey', label: 'Secret key', required: true, secret: true },
+      bucket('Disk (bucket)'),
+      req('region', 'Region'),
+      ...keys('S3 access key ID', 'S3 secret access key'),
+      opt('branch', 'Branch (optional)'),
+      opt('publicBaseUrl', 'Public base URL (optional)'),
+    ],
+  },
+  azure: {
+    label: 'Azure Blob Storage',
+    fields: [
+      bucket('Container'),
+      req('accountName', 'Account name'),
+      { key: 'accountKey', label: 'Account key', required: true, secret: true },
+      opt('endpoint', 'Endpoint (optional)'),
+    ],
+  },
+  gcs: {
+    label: 'Google Cloud Storage',
+    fields: [
+      bucket(),
+      req('projectId', 'Project ID'),
+      req('clientEmail', 'Service account email'),
+      { key: 'privateKey', label: 'Service account private key', required: true, secret: true, placeholder: '-----BEGIN PRIVATE KEY-----...' },
+      opt('apiEndpoint', 'API endpoint (optional)'),
+    ],
+  },
+  github: {
+    label: 'GitHub repository',
+    fields: [
+      req('owner', 'Owner'),
+      req('repo', 'Repository'),
+      opt('branch', 'Branch (optional)', 'main'),
+      { key: 'token', label: 'Token', required: true, secret: true },
+      opt('baseUrl', 'API URL (GitHub Enterprise)', 'https://api.github.com'),
+    ],
+  },
+  'code-storage': {
+    label: 'Code Storage',
+    fields: [
+      req('name', 'Account name'),
+      req('repo', 'Repository'),
+      opt('branch', 'Branch (optional)'),
+      { key: 'key', label: 'Private key (PEM)', secret: true },
+      { key: 'token', label: 'Token', secret: true },
+      opt('apiBaseUrl', 'API base URL (optional)'),
+      opt('storageBaseUrl', 'Storage base URL (optional)'),
+      opt('authorName', 'Commit author name (optional)'),
+      opt('authorEmail', 'Commit author email (optional)'),
+    ],
+  },
+  mesa: {
+    label: 'Mesa',
+    fields: [
+      req('repo', 'Repository'),
+      { key: 'apiKey', label: 'API key', required: true, secret: true },
+      opt('org', 'Organization (optional)'),
+      opt('bookmark', 'Bookmark (optional)'),
+      opt('apiUrl', 'API URL (optional)'),
+      opt('vcsUrl', 'VCS URL (optional)'),
+      opt('authorName', 'Commit author name (optional)'),
+      opt('authorEmail', 'Commit author email (optional)'),
     ],
   },
   webdav: {
     label: 'WebDAV server',
     fields: [
-      { key: 'baseUrl', label: 'Server URL', required: true, placeholder: 'https://dav.example.com' },
-      { key: 'root', label: 'Root path', placeholder: '/' },
-      { key: 'folder', label: 'Folder', required: true, placeholder: 'drive' },
-      { key: 'username', label: 'Username' },
+      req('baseUrl', 'Server URL', 'https://dav.example.com'),
+      opt('root', 'Root path', '/'),
+      req('folder', 'Folder', 'drive'),
+      opt('username', 'Username'),
       { key: 'password', label: 'Password', secret: true },
     ],
   },
   vercel: {
     label: 'Vercel Blob',
     fields: [
-      { key: 'bucket', label: 'Path prefix', required: true },
+      bucket('Path prefix'),
       { key: 'token', label: 'Read-write token', required: true, secret: true },
-      { key: 'access', label: 'Access (public/private)', placeholder: 'public' },
+      opt('access', 'Access (public/private)', 'public'),
     ],
   },
 };

@@ -96,6 +96,16 @@ const num = (v: unknown) => {
   return n;
 };
 
+/** Error message plus its causes, so a generic "Provider" error shows what the backend said. */
+function describe(err: unknown): string {
+  const parts: string[] = [];
+  for (let e = err as { message?: string; cause?: unknown } | undefined, i = 0; e && i < 4; e = e.cause as typeof e, i++) {
+    const m = String(e.message ?? e);
+    if (m && !parts.includes(m)) parts.push(m);
+  }
+  return parts.join(': ') || String(err);
+}
+
 async function recount(env: Env, user: User): Promise<number> {
   const settings = await loadSettings(env);
   const drive = new Drive(env, settings, user);
@@ -149,10 +159,16 @@ async function api(req: Request, env: Env, path: string): Promise<Response> {
       const b = settings.backends[idx];
       if (!b) throw new HttpError(404, 'no such backend');
       try {
-        const out = await (await storageFor(env, b)).list({ limit: 5 });
+        const storage = await storageFor(env, b);
+        const out = await Promise.race([
+          storage.list({ limit: 5, signal: AbortSignal.timeout(20_000) }),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('no answer from the backend within 20 seconds')), 20_000)
+          ),
+        ]);
         return json({ ok: true, message: `connected, ${out.items.length}${out.cursor ? '+' : ''} object(s) visible` });
       } catch (err) {
-        return json({ ok: false, message: String((err as Error).message ?? err) });
+        return json({ ok: false, message: describe(err) });
       }
     }
     if (method === 'PUT') {

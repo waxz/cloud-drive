@@ -5,6 +5,10 @@ compatibility_flags = ["nodejs_compat"]
 
 [alias]
 "@aws-sdk/xml-builder" = "./shims/xml-builder.js"
+# Azure's browser build has no shared-key auth; use its Node build.
+"@azure/storage-blob" = "./node_modules/@azure/storage-blob/dist/esm/index.js"
+"@azure/storage-common" = "./node_modules/@azure/storage-common/dist/esm/index.js"
+"@azure/core-xml" = "./node_modules/@azure/core-xml/dist/esm/index.js"
 
 # Admin settings, users and usage counters.
 [[kv_namespaces]]

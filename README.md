@@ -46,9 +46,17 @@ Local development: `cp .dev.vars.example .dev.vars`, then `npm run dev`
   | Type | Notes |
   | --- | --- |
   | `r2-binding` | R2 bucket bound to the Worker. No keys; streams natively and uses R2 multipart. |
-  | `r2`, `s3`, `minio`, `backblaze`, `wasabi`, `spaces` | Any S3-style bucket via `@storagesdk/adapters`. |
+  | `r2`, `s3`, `minio`, `backblaze`, `wasabi`, `spaces`, `linode`, `supabase`, `neon`, `mosaic`, `archil` | S3-style buckets. |
+  | `tigris`, `fly`, `railway` | Tigris and the Tigris-backed Fly.io / Railway buckets. |
+  | `azure` | Azure Blob Storage (account name + key). |
+  | `gcs` | Google Cloud Storage. Paste the service account's `client_email` and `private_key`. |
+  | `github`, `code-storage`, `mesa` | Git-backed storage: every write is a commit. Fine for small, slow-changing files. |
   | `webdav` | Another WebDAV server as the backing store. |
   | `vercel` | Vercel Blob. |
+
+  Every storagesdk adapter is available except two that can't run on Workers:
+  `fs` (there is no local disk) and `tensorlake` (its SDK loads native Node
+  binaries).
 
 - **Users** — username, password (stored as PBKDF2-SHA256), enable/disable,
   and two limits:
@@ -120,5 +128,12 @@ CFD_KEY=... CFD_SECRET=... CFD_BUCKET=home node test/smoke-s3.mjs
   shared between users, numbers are approximate; use *Recount*.
 - Password checks and signature verification use real CPU; the Workers paid
   plan is recommended over the free 10 ms CPU limit.
-- The AWS SDK's browser build needs `DOMParser`, which Workers lack, so
-  `wrangler.toml` aliases `@aws-sdk/xml-builder` to `shims/xml-builder.js`.
+- Wrangler bundles some SDKs' browser builds, which don't work on Workers.
+  `wrangler.toml` aliases them: `@aws-sdk/xml-builder` to
+  `shims/xml-builder.js` (the browser build needs `DOMParser`), and the
+  `@azure/storage-blob`, `@azure/storage-common` and `@azure/core-xml`
+  packages to their Node builds (the browser builds lack shared-key auth and
+  need `document`).
+- All adapter SDKs are bundled into one Worker (about 1.7 MB gzipped), which
+  fits the Free plan's 3 MB limit. Each SDK is only initialised when a
+  backend of that type is used.
