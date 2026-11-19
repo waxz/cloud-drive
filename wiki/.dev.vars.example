@@ -1,5 +1,3 @@
-# cloud-drive user the wiki stores files as (needs write access to CLOUD_DRIVE_DRIVE).
+# cloud-drive user the wiki stores files and history as (needs write access to CLOUD_DRIVE_DRIVE).
 CLOUD_DRIVE_USER=
 CLOUD_DRIVE_PASSWORD=
-# Optional site-wide password.
-# WIKI_PASSWORD=

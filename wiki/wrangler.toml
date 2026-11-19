@@ -3,14 +3,13 @@ main = "worker/index.ts"
 compatibility_date = "2026-11-01"
 compatibility_flags = ["nodejs_compat"]
 
-# The React app (built by Vite into dist/client). The Worker runs first for
-# the API, sync, and the HTML entry points (so WIKI_PASSWORD covers the app);
-# hashed JS/CSS/fonts are served directly.
+# The React app (built by Vite into dist/client). The API and live sync run
+# the Worker first; every other path falls back to the app.
 [assets]
 directory = "./dist/client"
 binding = "ASSETS"
 not_found_handling = "single-page-application"
-run_worker_first = ["/api/*", "/parties/*", "/", "/p/*"]
+run_worker_first = ["/api/*", "/parties/*"]
 
 # One Durable Object per page holds the live Yjs document and its saved state.
 [[durable_objects.bindings]]
@@ -38,8 +37,9 @@ migrations_dir = "migrations"
 # With the CLOUD_DRIVE binding, only the URL's path is used.
 CLOUD_DRIVE_URL = "http://127.0.0.1:8792"
 CLOUD_DRIVE_DRIVE = "drive"
+# PBKDF2 iterations for new passwords. 50,000 (~5 ms of CPU) fits the Free
+# plan's 10 ms limit; on the paid plan raise it to 100,000 (the Workers maximum).
+PASSWORD_ITERATIONS = "50000"
 
 # Secrets (wrangler secret put / .dev.vars):
 #   CLOUD_DRIVE_USER, CLOUD_DRIVE_PASSWORD  cloud-drive user for uploads
-#   WIKI_PASSWORD                           optional; when set, the whole wiki
-#                                           asks for it (Basic auth, any username)

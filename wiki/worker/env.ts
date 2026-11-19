@@ -10,5 +10,6 @@ export interface Env {
   CLOUD_DRIVE_DRIVE: string;
   CLOUD_DRIVE_USER?: string;
   CLOUD_DRIVE_PASSWORD?: string;
-  WIKI_PASSWORD?: string;
+  /** PBKDF2 iterations for new password hashes (default 50,000; Workers allow up to 100,000). */
+  PASSWORD_ITERATIONS?: string;
 }

@@ -1,173 +1,130 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { api, type Page, type SearchHit } from './api';
-import { PageEditor } from './Editor';
-import { loadUser, saveUser, type User } from './user';
-
-const pageIdFromPath = () => /^\/p\/([\w-]+)/.exec(window.location.pathname)?.[1] ?? null;
-
-function useDarkMode(): boolean {
-  const query = window.matchMedia('(prefers-color-scheme: dark)');
-  const [dark, setDark] = useState(query.matches);
-  useEffect(() => {
-    const onChange = (e: MediaQueryListEvent) => setDark(e.matches);
-    query.addEventListener('change', onChange);
-    return () => query.removeEventListener('change', onChange);
-  }, [query]);
-  return dark;
-}
+import { Alert, Button, Loader, Paper, Stack, Text, TextInput, Title, useComputedColorScheme } from '@mantine/core';
+import { useCallback, useEffect, useState } from 'react';
+import { ApiError, api, type Me } from './api';
+import { AuthScreen } from './AuthScreen';
+import { href, navigate, useRoute } from './route';
+import { SharedView } from './SharedView';
+import { Shell } from './Shell';
+import { errorText } from './util';
 
 export function App() {
-  const [pages, setPages] = useState<Page[]>([]);
-  const [current, setCurrent] = useState<string | null>(pageIdFromPath);
-  const [user, setUser] = useState<User>(loadUser);
-  const [query, setQuery] = useState('');
-  const [hits, setHits] = useState<SearchHit[] | null>(null);
+  const route = useRoute();
+  const [me, setMe] = useState<Me | null | undefined>(undefined);
+  const [signingIn, setSigningIn] = useState(false);
   const [error, setError] = useState('');
-  const dark = useDarkMode();
+  const dark = useComputedColorScheme('light') === 'dark';
+  const onError = useCallback((m: string) => setError(m), []);
 
-  const refresh = useCallback(() => {
-    api.pages().then(setPages, (e: Error) => setError(e.message));
-  }, []);
-
+  const loadMe = useCallback(
+    () =>
+      api.me().then(setMe, (e) => {
+        if (e instanceof ApiError && e.status === 401) setMe(null);
+        else setError(errorText(e));
+      }),
+    []
+  );
   useEffect(() => {
-    refresh();
-    // Other people's renames and new pages show up without a reload.
-    const timer = setInterval(refresh, 15_000);
-    window.addEventListener('focus', refresh);
-    const onPop = () => setCurrent(pageIdFromPath());
-    window.addEventListener('popstate', onPop);
-    return () => {
-      clearInterval(timer);
-      window.removeEventListener('focus', refresh);
-      window.removeEventListener('popstate', onPop);
-    };
-  }, [refresh]);
+    loadMe();
+  }, [loadMe]);
 
+  // Home (or a workspace you're not in): go to your first workspace, if any.
+  const known = route.name === 'workspace' && !!me?.workspaces.some((w) => w.id === route.wid);
+  const firstId = me?.workspaces[0]?.id;
   useEffect(() => {
-    if (!query.trim()) {
-      setHits(null);
-      return;
-    }
-    const t = setTimeout(() => api.search(query).then(setHits, (e: Error) => setError(e.message)), 200);
-    return () => clearTimeout(t);
-  }, [query]);
+    if (me && route.name !== 'share' && !known && firstId) navigate(href.workspace(firstId));
+  }, [me, route.name, known, firstId]);
 
-  const open = (id: string | null) => {
-    window.history.pushState(null, '', id ? `/p/${id}` : '/');
-    setCurrent(id);
-    setQuery('');
-  };
-
-  const create = async (parentId: string | null) => {
-    try {
-      const page = await api.create(parentId);
-      setPages((list) => [...list, page]);
-      open(page.id);
-    } catch (e) {
-      setError((e as Error).message);
-    }
-  };
-
-  const children = useMemo(() => {
-    const map = new Map<string | null, Page[]>();
-    for (const p of pages) map.set(p.parent_id, [...(map.get(p.parent_id) ?? []), p]);
-    return map;
-  }, [pages]);
-
-  const remove = async (page: Page) => {
-    if (!confirm(`Delete "${page.title || 'Untitled'}" and its subpages?`)) return;
-    const gone = new Set<string>();
-    const collect = (id: string) => {
-      gone.add(id);
-      for (const c of children.get(id) ?? []) collect(c.id);
-    };
-    collect(page.id);
-    try {
-      await api.remove(page.id);
-      if (current && gone.has(current)) open(null);
-      setPages((list) => list.filter((p) => !gone.has(p.id)));
-    } catch (e) {
-      setError((e as Error).message);
-    }
-  };
-
-  const onTitle = useCallback(
-    (title: string) => setPages((list) => list.map((p) => (p.id === current ? { ...p, title } : p))),
-    [current]
+  const banner = error && (
+    <Alert color="red" variant="filled" className="error" withCloseButton onClose={() => setError('')}>
+      {error}
+    </Alert>
   );
 
-  const renameMe = () => {
-    const name = prompt('Your name', user.name)?.trim();
-    if (!name) return;
-    const next = { ...user, name };
-    saveUser(next);
-    setUser(next);
+  if (me === undefined) return <Loader m="xl" size="sm" />;
+
+  const signOut = async () => {
+    await api.logout();
+    setMe(null);
+    navigate('/');
   };
 
-  const tree = (parentId: string | null, depth: number): React.ReactNode =>
-    (children.get(parentId) ?? []).map((p) => (
-      <div key={p.id}>
-        <div
-          className={p.id === current ? 'item active' : 'item'}
-          style={{ paddingLeft: 12 + depth * 14 }}
-          onClick={() => open(p.id)}
-        >
-          <span className="item-title">{p.title || 'Untitled'}</span>
-          <span className="item-actions">
-            <button title="Add subpage" onClick={(e) => (e.stopPropagation(), create(p.id))}>+</button>
-            <button title="Delete" onClick={(e) => (e.stopPropagation(), remove(p))}>×</button>
-          </span>
-        </div>
-        {tree(p.id, depth + 1)}
-      </div>
-    ));
+  if (route.name === 'share' && !signingIn) {
+    return (
+      <>
+        {banner}
+        <SharedView token={route.token} pageId={route.pageId} me={me} dark={dark} onSignIn={() => setSigningIn(true)} onError={onError} />
+      </>
+    );
+  }
 
+  if (!me) {
+    return (
+      <>
+        {banner}
+        <AuthScreen
+          note={signingIn ? 'Sign in or create an account to use this link.' : undefined}
+          onAuthed={(m) => {
+            setMe(m);
+            setSigningIn(false);
+          }}
+        />
+      </>
+    );
+  }
+
+  if (route.name === 'workspace') {
+    const workspace = me.workspaces.find((w) => w.id === route.wid);
+    if (workspace) {
+      return (
+        <>
+          {banner}
+          <Shell me={me} workspace={workspace} pageId={route.pageId} dark={dark} onMeChanged={loadMe} onSignOut={signOut} onError={onError} />
+        </>
+      );
+    }
+  }
+
+  if (firstId) return null; // redirecting to it
   return (
-    <div className="app">
-      <aside className="sidebar">
-        <div className="brand" onClick={() => open(null)}>Wiki</div>
-        <input className="search" placeholder="Search" value={query} onChange={(e) => setQuery(e.target.value)} />
-        {hits ? (
-          <div className="hits">
-            {hits.length === 0 && <div className="muted pad">No matches</div>}
-            {hits.map((h) => (
-              <div key={h.id} className="hit" onClick={() => open(h.id)}>
-                <div className="hit-title">{h.title || 'Untitled'}</div>
-                {/* snippet() output: page text with <mark> tags added by FTS5 */}
-                <div className="hit-snippet" dangerouslySetInnerHTML={{ __html: escapeSnippet(h.snippet) }} />
-              </div>
-            ))}
-          </div>
-        ) : (
-          <nav className="tree">{tree(null, 0)}</nav>
-        )}
-        <button className="new" onClick={() => create(null)}>+ New page</button>
-        <div className="me" onClick={renameMe} title="Change your name">
-          <span className="peer" style={{ background: user.color }}>{user.name.slice(0, 1).toUpperCase()}</span>
-          {user.name}
-        </div>
-      </aside>
-      <main className="main">
-        {error && <div className="error" onClick={() => setError('')}>{error}</div>}
-        {current ? (
-          <PageEditor key={current} pageId={current} user={user} dark={dark} onTitle={onTitle} />
-        ) : (
-          <div className="empty">
-            <p>Pick a page on the left, or start a new one.</p>
-            <button onClick={() => create(null)}>New page</button>
-          </div>
-        )}
-      </main>
-    </div>
+    <>
+      {banner}
+      <FirstWorkspace onCreated={loadMe} onSignOut={signOut} onError={onError} />
+    </>
   );
 }
 
-/** Escapes snippet text but keeps the <mark> highlights FTS5 inserted. */
-function escapeSnippet(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/&lt;mark&gt;/g, '<mark>')
-    .replace(/&lt;\/mark&gt;/g, '</mark>');
+function FirstWorkspace({ onCreated, onSignOut, onError }: { onCreated: () => void; onSignOut: () => void; onError: (m: string) => void }) {
+  const [name, setName] = useState('');
+  return (
+    <div className="auth">
+      <Paper withBorder radius="md" p="lg" w={380} maw="calc(100vw - 32px)">
+        <form
+          onSubmit={async (e) => {
+            e.preventDefault();
+            try {
+              await api.createWorkspace(name.trim());
+              onCreated();
+            } catch (err) {
+              onError(errorText(err));
+            }
+          }}
+        >
+          <Stack>
+            <Title order={4}>Create a workspace</Title>
+            <Text size="sm" c="dimmed">
+              A workspace holds your projects and the people you work with. If someone invited you, ask them to add the email you signed up
+              with.
+            </Text>
+            <TextInput label="Workspace name" value={name} onChange={(e) => setName(e.currentTarget.value)} data-autofocus />
+            <Button type="submit" disabled={!name.trim()}>
+              Create
+            </Button>
+            <Button variant="subtle" onClick={onSignOut}>
+              Sign out
+            </Button>
+          </Stack>
+        </form>
+      </Paper>
+    </div>
+  );
 }
