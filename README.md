@@ -30,16 +30,27 @@ away (see below).
 
 ## Deploy
 
+storagesdk comes from our fork, [waxz/storagesdk](https://github.com/waxz/storagesdk),
+as a git submodule in `vendor/storagesdk`, so clone with submodules and use
+pnpm (the repo is a pnpm workspace that includes the fork's `core` and
+`adapters` packages):
+
 ```bash
-npm install
+git clone --recurse-submodules https://github.com/waxz/cloud-drive
 ```
 
 ```bash
-npx wrangler secret put ADMIN_PASSWORD
+pnpm install
+```
+
+`pnpm install` also builds the vendored packages (`pnpm build:storagesdk`).
+
+```bash
+pnpm wrangler secret put ADMIN_PASSWORD
 ```
 
 ```bash
-npx wrangler deploy
+pnpm wrangler deploy
 ```
 
 `wrangler deploy` creates the `CONFIG` KV namespace and the `BUCKET` R2 bucket
@@ -49,8 +60,25 @@ backend pointing at the bound bucket is already there. Click *Add user*; the
 form starts with a `drive` on that backend in a folder named after the user.
 Save, and connect a client (see [Connecting](#connecting)).
 
-Local development: `cp .dev.vars.example .dev.vars`, then `npm run dev`
+Local development: `cp .dev.vars.example .dev.vars`, then `pnpm dev`
 (the local admin password is `admin`).
+
+### Updating storagesdk
+
+The submodule tracks the fork's `claude/clever-rubin-44hmpt` branch, pinned
+to a commit. To move to the branch's latest commit:
+
+```bash
+git submodule update --remote vendor/storagesdk
+```
+
+```bash
+pnpm build:storagesdk
+```
+
+Then test and commit the new `vendor/storagesdk` pointer. The vendored
+packages are built with the fork's own TypeScript version
+(`storagesdk-typescript`, 5.9), not this project's.
 
 ## Admin panel
 
@@ -146,7 +174,7 @@ Writes need `content-type: application/json`.
 
 ## Tests
 
-With `npm run dev` running and a user configured:
+With `pnpm dev` running and a user configured:
 
 ```bash
 CFD_USER=alice CFD_PASS=... CFD_DRIVE=home node test/smoke-dav.mjs
@@ -155,6 +183,9 @@ CFD_USER=alice CFD_PASS=... CFD_DRIVE=home node test/smoke-dav.mjs
 ```bash
 CFD_KEY=... CFD_SECRET=... CFD_BUCKET=home node test/smoke-s3.mjs
 ```
+
+Add `CFD_NO_METADATA=1` to the S3 test for a drive whose backend can't store
+user metadata (WebDAV, Vercel Blob, the Git-backed ones).
 
 ## Limits worth knowing
 
@@ -172,8 +203,13 @@ CFD_KEY=... CFD_SECRET=... CFD_BUCKET=home node test/smoke-s3.mjs
   | --- | --- |
   | `r2-binding` | One 8 MB part at most. |
   | `s3`, `r2`, `minio`, `backblaze`, `wasabi`, `spaces`, `linode`, `supabase`, `neon`, `mosaic`, `archil` | One multipart part (5 MB by default). |
+  | `azure` | One 8 MiB block. |
+  | `gcs` | Small; the stream is piped into a resumable upload. |
+  | `webdav` | Small; the stream is sent as it arrives. With digest auth, the whole file. |
+  | `code-storage` | One 4 MB chunk. |
+  | `vercel` | Up to 128 MB: `@vercel/blob` reads ahead while it uploads 8 MB parts in parallel. |
   | `tigris`, `fly`, `railway` | Up to the Tigris SDK; not measured. |
-  | `azure`, `gcs`, `webdav`, `vercel`, `github`, `code-storage`, `mesa` | The whole file: their adapters read the body into memory before sending it. Keep files on these well under the Worker's 128 MB memory limit. |
+  | `github`, `mesa` | The whole file: their APIs take it as base64 in one request (GitHub also caps files at 1 MB). |
 - Cloudflare caps request bodies at 100 MB (more on Enterprise). Big files
   should go through S3 multipart (aws cli and rclone do this automatically).
   A single WebDAV PUT above the cap is rejected by Cloudflare.

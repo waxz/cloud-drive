@@ -1,5 +1,6 @@
 // End-to-end check of the S3 API using the official AWS SDK.
 // Usage: CFD_URL=http://127.0.0.1:8787 CFD_KEY=... CFD_SECRET=... CFD_BUCKET=home node test/smoke-s3.mjs
+// Set CFD_NO_METADATA=1 for a drive whose backend can't store user metadata.
 import assert from 'node:assert/strict';
 import {
   CopyObjectCommand, DeleteObjectCommand, DeleteObjectsCommand, GetObjectCommand,
@@ -29,7 +30,8 @@ await s3.send(new PutObjectCommand({ Bucket, Key: `${p}/sp ace+ü.txt`, Body: 'o
 const head = await s3.send(new HeadObjectCommand({ Bucket, Key: `${p}/a.txt` }));
 assert.equal(head.ContentLength, 5);
 assert.equal(head.ContentType, 'text/plain');
-assert.equal(head.Metadata.k, 'v');
+// Some backends (WebDAV, Vercel Blob, Git-backed) have no place for user metadata.
+if (process.env.CFD_NO_METADATA !== '1') assert.equal(head.Metadata.k, 'v');
 
 assert.equal(await text(await s3.send(new GetObjectCommand({ Bucket, Key: `${p}/a.txt` }))), 'hello');
 assert.equal(await text(await s3.send(new GetObjectCommand({ Bucket, Key: `${p}/a.txt`, Range: 'bytes=1-3' }))), 'ell');

@@ -8,9 +8,11 @@ export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url);
     const p = url.pathname;
+    // Signed S3 requests first: a drive (bucket) may be named "dav" or
+    // "admin", and its path-style URLs must not land in those handlers.
+    if (isSigV4(req, url)) return handleS3(req, env);
     if (p === '/admin' || p.startsWith('/admin/')) return handleAdmin(req, env);
     if (p === DAV_ROOT || p.startsWith(`${DAV_ROOT}/`)) return handleDav(req, env);
-    if (isSigV4(req, url)) return handleS3(req, env);
     if (p === '/' && (req.method === 'GET' || req.method === 'HEAD')) {
       return Response.redirect(`${url.origin}/admin`, 302);
     }

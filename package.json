@@ -4,23 +4,27 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "build:storagesdk": "node node_modules/storagesdk-typescript/bin/tsc -p vendor/storagesdk/packages/core/tsconfig.build.json && node node_modules/storagesdk-typescript/bin/tsc -p vendor/storagesdk/packages/adapters/tsconfig.build.json",
+    "postinstall": "pnpm build:storagesdk",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1169.0",
     "@aws-sdk/lib-storage": "^3.1169.0",
     "@aws-sdk/s3-presigned-post": "^3.1169.0",
     "@aws-sdk/s3-request-presigner": "^3.1169.0",
+    "@aws-sdk/xml-builder": "^3.972.43",
+    "@azure/core-xml": "^1.6.1",
     "@azure/storage-blob": "^12.34.0",
+    "@azure/storage-common": "^12.5.0",
     "@google-cloud/storage": "^7.22.0",
     "@mesadev/sdk": "^0.38.0",
     "@octokit/rest": "^21.1.1",
     "@pierre/storage": "^1.17.1",
-    "@storagesdk/adapters": "^0.12.1",
-    "@storagesdk/core": "^0.5.0",
+    "@storagesdk/adapters": "workspace:*",
+    "@storagesdk/core": "workspace:*",
     "@tigrisdata/storage": "^3.23.0",
     "@vercel/blob": "^2.9.0",
     "webdav": "^5.11.0"
@@ -28,6 +32,7 @@
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261114.1",
     "@types/node": "^26.6.6",
+    "storagesdk-typescript": "npm:typescript@~5.9.3",
     "typescript": "^7.0.2",
     "wrangler": "^4.162.0"
   }

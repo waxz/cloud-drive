@@ -1,0 +1,4 @@
+[submodule "vendor/storagesdk"]
+	path = vendor/storagesdk
+	url = https://github.com/waxz/storagesdk
+	branch = claude/clever-rubin-44hmpt

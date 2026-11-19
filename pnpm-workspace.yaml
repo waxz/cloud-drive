@@ -1,0 +1,16 @@
+# storagesdk is vendored as a git submodule (our fork, waxz/storagesdk) and
+# built from source on install, so fixes land here without an npm release.
+packages:
+  - vendor/storagesdk/packages/core
+  - vendor/storagesdk/packages/adapters
+
+onlyBuiltDependencies:
+  - esbuild
+  - workerd
+
+# Native helpers pulled in by storagesdk's dev dependencies; a Worker never
+# loads them.
+ignoredBuiltDependencies:
+  - '@mongodb-js/zstd'
+  - node-liblzma
+  - protobufjs
