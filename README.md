@@ -15,9 +15,9 @@ panel at `/admin` manages backends, users, passwords, limits and permissions.
                                └── KV: settings, users, usage
 ```
 
-The [`wiki/`](wiki/README.md) folder holds a collaborative wiki (workspaces,
-projects, permissions, live editing, comments, history, sharing) built on
-Durable Objects and D1, which stores its files and page history in cloud-drive.
+[Cloud Doc](https://github.com/waxz/cloud-doc) is a collaborative wiki on
+Durable Objects and D1 that can store its files and page history in
+cloud-drive.
 
 ## How it fits together
 

@@ -3,7 +3,6 @@
 packages:
   - vendor/storagesdk/packages/core
   - vendor/storagesdk/packages/adapters
-  - wiki
 
 onlyBuiltDependencies:
   - esbuild
