@@ -1,0 +1,8 @@
+import '@blocknote/core/fonts/inter.css';
+import '@blocknote/mantine/style.css';
+import './styles.css';
+import { createRoot } from 'react-dom/client';
+import { App } from './App';
+
+// No StrictMode: its double mount would tear down the live sync connection.
+createRoot(document.getElementById('root')!).render(<App />);

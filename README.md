@@ -15,6 +15,9 @@ panel at `/admin` manages backends, users, passwords, limits and permissions.
                                └── KV: settings, users, usage
 ```
 
+The [`wiki/`](wiki/README.md) folder holds a collaborative wiki prototype
+(BlockNote, Durable Objects, D1) that stores its files in cloud-drive.
+
 ## How it fits together
 
 - A **backend** is a place files are stored: a bucket, a container, a repo.
